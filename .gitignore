@@ -1,0 +1,23 @@
+# Secrets — never commit
+.env
+
+# Vector store data
+.chromadb/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Poetry
+poetry.lock
+
+# Virtual environments
+.venv/
+venv/
+
+# VS Code settngs
+.vscode/
+
+# Claude configurations
+.claude/*

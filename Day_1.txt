@@ -1,0 +1,190 @@
+Claude Code
+Features:
+1. choose llm
+2. ask
+3. plan
+4. edit
+5. long running tasks
+6. analyse codebase
+Modular code structure
+1. config (abstracted from rest of the code)
+    1. LLM
+    2. DB
+2. LLM (initialize based on config)
+3. Context (Ingestion, Retreival, Generation)
+    1. Indexers
+        1. Data ingestion (add to DB)
+    2. Retreivers
+4. Memory
+5. Tools
+6. MCP
+7. Skills
+8. Freshness
+9. Safety
+10. Observability
+11. Evals
+Main file → Entry point into the application
+Poetry
+- Virtual Environments and requirements.txt file taken care of
+- Initialize
+    - Name, version, description etc….
+    - pyproject.toml
+        - add required packages in dependancies
+            - poetry add python-dotenv opeani
+- poetry lock file automatically takes care of dependancies
+Spin up from anywhere
+- look for main file with function run inside it
+Setup
+- .env
+- gitignore
+Config
+- Needs to pushed to git
+- Like parameters of model selection, DB etc.
+- Within the project
+- config.yaml
+- config.py
+    - parse the config.yaml and load the configurations
+    - poetry add pyyaml
+- poetry install for actually installing dependancies
+Logging (observability)
+- init.py file for making it a module
+- logger.py
+    - level taken from config (DEBUG etc)
+Entry Point
+- main.py within the project
+- def run()
+    - exit / quit / ask etc inputs
+    - print and logging statements
+Run application
+- poetry run or just the project name
+    - Can be run from anywhere now
+    - now project is runnable from CLI from any folder
+- pycache created
+LLM Factory
+- Abstraction for LLM creation and management
+- Which LLM is only present in config.yaml
+    - provider
+    - model name
+- get_llm()
+    - The only file that needs to change for changing the model
+- get_embedder()
+- add the required dependancies
+Pipx issues
+- env variables from different folder cannot be loaded when run from elsewhere
+- managed without issues by poetry
+Context
+Indexers
+- Two major cases:
+    - Empty project
+        - create file
+    - Existing project
+        - Debug, ask, edit files
+        - At spin up:
+            - Process current codebase (indexer)
+            - Add to DB
+            - starting with semantic search and vector db for now
+code_parser.py
+- Parsing logic independant of DB
+- If any change it should not affect anywhere else
+- Tree Sitter - better at parsing code than AST
+- Default chunk size and chunk overlap in case tree sitter is not working - can be added in config as well
+- ParseChunk
+- parse_file()
+    - parser.parse()
+- walk()
+    - extract the names
+- Fallback logic for sliding windows
+- poetry add tree sitter
+semantic_chroma.py
+- parsing logic not present here. import from code_parser → get_source_files(), parse()
+- where to persist → taken from config.yaml
+- get files → parse (chunking) → embedding (from llm module) → add to collection (name taken from config.yaml)
+- Adding data to the collection is the SRP of this file → Indexing or Ingestion process
+- add logic in run() in main to index if code already present
+    - initialize()
+    - get_or_create_index()
+    - show_semantic_index()
+    - the above two fn() should not actually be in main.py
+Running from different folder
+- for now solve with pipx for virtual environment
+- Actually:
+    - activate poetry environment
+    - command in google doc
+- poetry run app_name
+- chroma db gets created
+- /help command to see options
+- /show_semantic_index:
+    - chunks
+        - line numbers
+        - class or function
+    - all embeddings are 1536 dimensions
+        - decided by the embedding model
+Retrievers
+semantic_chroma.py
+- chroma peristane client
+- loading from config
+- query the collection for top k
+- append the retreived docs in chunks[]
+- Needs a tool for calling this logic so that our LLM becomes an agent
+Agent
+tools.py
+- tool to retreive content from semantic_chroma.py from retrievers module
+- @tool search_codebase
+    - docstring to let the LLM know what this tool does
+    - return the retreived chunks
+factory.py
+- build_agent(()
+- The file has the following responsibility
+    - Structured output can be added here
+    - Adding memory can be done here
+    - System prompt also here
+orchestrator.py
+- Maybe in future there can be multiple agents working together
+- managing the agents
+- handling the query
+Workflow
+query → main (also index the codebase) → agent/orchestrator → agent/factory → tool → retriever → semantic_chroma
+- update ask branch in main for calling orchestrator handle_query()
+- Run the claude clone from a sample codebase
+- /ask <question>
+Optimizations
+DB
+- used for production
+- chroma only handles small scale
+- higher throughput
+- milliions or billlions of vectors as in production
+- has support for both semantic and lexical search → all in one - > hybrid in built
+Why create a new agent every time the application runs?
+Quadrant
+- Use RRF for fusion
+- Dense and Sparse in the hybrid rag flow
+- HNSW
+    - how can quadrant scale to prouction level?
+    - how can indexing still be fast for large scale data
+- Read the docs → Homework
+Creating a cluster
+- Login at cloud quadrant
+- Free cluster
+- API key store in .env
+- Cluster endpoint store in .env
+- add poetry quadant
+Conig.yaml
+- vector store configuration
+indexers/factory.py
+- get_indexer() from config
+- then use the right indexer file
+semantic_quadrant.py
+- parser code does not change
+- get collection name from config
+- api key and url from env
+- creating client
+- add to vector store
+- move the get_or_create_index() and show_semantic_index() from main.py to the semantic_*.py files
+- repo_path = str(Path.cwd())
+    - to be able to run the claude from anywhere
+    - Get that path
+    - Then index the codebase in that path
+Running application
+- cluster ui for monitoring
+- collection name taken from config.yaml
+- ony ingestion part for now
