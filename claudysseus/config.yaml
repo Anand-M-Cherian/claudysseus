@@ -26,3 +26,6 @@ rag:
 vector_store:
  provider: qdrant
  retrieval_mode: hybrid  # dense | sparse | hybrid
+
+memory:
+ db_path: .memory/memory.db
