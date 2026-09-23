@@ -19,3 +19,10 @@ vector_store:
 
 qdrant:
     collection_name: codebase
+
+rag:
+ mode: hybrid           # semantic | hybrid
+
+vector_store:
+ provider: qdrant
+ retrieval_mode: hybrid  # dense | sparse | hybrid
