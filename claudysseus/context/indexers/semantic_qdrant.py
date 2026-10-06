@@ -1,7 +1,9 @@
 import os
+from functools import lru_cache
 from langchain_qdrant import QdrantVectorStore
 from langchain_core.documents import Document
 from qdrant_client import QdrantClient
+from qdrant_client.models import FieldCondition, Filter, FilterSelector, MatchValue, PayloadSchemaType
 
 
 from claudysseus.config import config
@@ -39,29 +41,9 @@ def index_codebase(repo_path: str) -> QdrantVectorStore:
             )
 
     logger.info(f"Starting semantic indexing of {repo_path}")
-    files = get_source_files(repo_path)
     docs = []
-
-    for filepath in files:
-        try:
-            chunks = parse_file(filepath)
-        except (SyntaxError, ValueError) as e:
-            logger.error(f"Skipping {filepath}: {e}")
-            continue
-
-        for chunk in chunks:
-            docs.append(Document(
-                page_content=chunk.content,
-                metadata={
-                    "source": chunk.source,
-                    "name": chunk.name,
-                    "type": chunk.type,
-                    "start_line": chunk.start_line,
-                    "end_line": chunk.end_line,
-                }
-            ))
-            logger.debug(
-                f"  Indexed {chunk.type} '{chunk.name}' from {filepath}")
+    for filepath in get_source_files(repo_path):
+        docs.extend(_file_documents(filepath))
 
     vector_store = QdrantVectorStore.from_documents(
         docs, embedder,
@@ -73,6 +55,83 @@ def index_codebase(repo_path: str) -> QdrantVectorStore:
 
     logger.info(f"Semantic indexing complete. Total chunks: {len(docs)}")
     return vector_store
+
+
+def _file_documents(filepath: str) -> list[Document]:
+    """Parse one file into Documents. Returns [] on parse error."""
+    try:
+        chunks = parse_file(filepath)
+    except (SyntaxError, ValueError) as e:
+        logger.error(f"Skipping {filepath}: {e}")
+        return []
+
+    return [
+        Document(
+            page_content=chunk.content,
+            metadata={
+                "source": chunk.source,
+                "name": chunk.name,
+                "type": chunk.type,
+                "start_line": chunk.start_line,
+                "end_line": chunk.end_line,
+            }
+        )
+        for chunk in chunks
+    ]
+
+
+@lru_cache(maxsize=1)
+def _get_vector_store() -> QdrantVectorStore:
+    """Connect to the existing collection once; reused by every watcher event."""
+    vector_store = QdrantVectorStore.from_existing_collection(
+        embedding=get_embedder(),
+        url=os.getenv("QDRANT_URL"),
+        api_key=os.getenv("QDRANT_API_KEY"),
+        collection_name=config["qdrant"]["collection_name"],
+    )
+    # Qdrant (strict mode) refuses to filter on unindexed payload fields,
+    # and _delete_file_points filters on metadata.source. Idempotent.
+    vector_store.client.create_payload_index(
+        collection_name=config["qdrant"]["collection_name"],
+        field_name="metadata.source",
+        field_schema=PayloadSchemaType.KEYWORD,
+    )
+    return vector_store
+
+
+def _delete_file_points(vector_store: QdrantVectorStore, filepath: str) -> None:
+    """Delete every point whose metadata.source is filepath."""
+    vector_store.client.delete(
+        collection_name=config["qdrant"]["collection_name"],
+        points_selector=FilterSelector(filter=Filter(must=[
+            FieldCondition(key="metadata.source",
+                           match=MatchValue(value=filepath))
+        ])),
+    )
+
+
+# ------------------------------------------------------------------
+# Public API used by watcher.py (per-file, real-time)
+# ------------------------------------------------------------------
+
+
+def index_single_file(filepath: str) -> None:
+    """Replace all chunks for filepath with freshly parsed ones."""
+    if not os.path.exists(filepath):
+        # File may have been deleted between the event firing and this call
+        return
+    vector_store = _get_vector_store()
+    _delete_file_points(vector_store, filepath)
+    docs = _file_documents(filepath)
+    if docs:
+        vector_store.add_documents(docs)
+    logger.info(f"Watchdog indexed {filepath} → {len(docs)} chunks")
+
+
+def remove_file_from_index(filepath: str) -> None:
+    """Remove all chunks for a deleted file."""
+    _delete_file_points(_get_vector_store(), filepath)
+    logger.info(f"Watchdog removed {filepath} from index")
 
 
 def show_index(vector_store: QdrantVectorStore) -> None:

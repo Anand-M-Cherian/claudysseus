@@ -6,6 +6,9 @@ chromadb:
     persist_dir: .claudysseus/chromadb/
     collection_name: codebase
 
+tasks:
+    db_path: .claudysseus/tasks.db
+
 elasticsearch:
     url: http://localhost:9200
     index_name: codebase
@@ -13,6 +16,7 @@ elasticsearch:
 llm:
     provider: openai # openai | anthropic
     model: gpt-4o
+    judge_model: gpt-4o-mini # cheaper model used only for LLM-as-judge
 
 qdrant:
     collection_name: codebase

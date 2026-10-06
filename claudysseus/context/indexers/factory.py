@@ -32,3 +32,18 @@ def get_index_inspector():
         from .semantic_chroma import show_index
 
     return show_index
+
+
+def get_file_indexer():
+    """Return the (index_single_file, remove_file_from_index) pair for the active vector store."""
+    mode = config["rag"]["mode"]
+    provider = config["vector_store"]["provider"]
+
+    if mode == "hybrid" and provider == "qdrant":
+        from .hybrid_qdrant import index_single_file, remove_file_from_index
+    elif provider == "qdrant":
+        from .semantic_qdrant import index_single_file, remove_file_from_index
+    else:
+        from .semantic_chroma import index_single_file, remove_file_from_index
+
+    return index_single_file, remove_file_from_index
